@@ -5,54 +5,105 @@ def stop():
     while True:
         sla = 1
 
+prob_for_zero_occurrences = 1e-4
+
 class BayesProb:
-        def __init__(self, train_data, test_data, stroke_occurencies) -> None:
+        def __init__(self, train_data, stroke_occurencies) -> None:
             self.df_train = train_data
-            self.df_test = test_data
             self.stroke_occurencies_index = stroke_occurencies
+            self.stroke_quant = len(self.stroke_occurencies_index) 
+            self.stroke_occur_prob = self.stroke_quant / len(self.df_train)
             self.quantities = {}    
-            self.probabilities = 1 #TODO
+            self.list_of_all_possible_values = {} #shows every possible choose for each possible patient characteristic
+
+        def add_possible_values(self, key, list_of_values):
+            self.list_of_all_possible_values[key] = list_of_values
+
+        def is_valid_value(self, key, value):
+            if key in self.list_of_all_possible_values:
+                return True if value in self.list_of_all_possible_values[key] else False
+            else:
+                return False
+
         def calculating_quants(self, key, list_of_possibilities):
             self.quantities[key] = {
                 possibility : [
-                       df_train[df_train[key] == possibility].shape[0],
-                       len(set(df_train[df_train[key] == possibility].index.to_list()) & self.stroke_occurencies_index)
+                       self.df_train[self.df_train[key] == possibility].shape[0],
+                       len(set(self.df_train[self.df_train[key] == possibility].index.to_list()) & self.stroke_occurencies_index)
                 ] for possibility in list_of_possibilities
             }
+            self.add_possible_values(key, list_of_possibilities)
+
+        def calculating_interval_quants(self, key, list_of_range_possibilities):
+            lower_limit = 0
+            self.quantities[key] = { range : [0, 0] for range in list_of_range_possibilities }
+            for upper_limit in list_of_range_possibilities:
+                for (values, ind) in zip(self.df_train[key], self.df_train[key].index):
+                    if values > lower_limit and values <= upper_limit:
+                        self.quantities[key][upper_limit][0] += 1
+                        if self.df_train['stroke'][ind] == 1:
+                            self.quantities[key][upper_limit][1] += 1
+                lower_limit = upper_limit
+            self.add_possible_values(key, list_of_range_possibilities)
+
+        '''
+        the probability of the value happening, P(B)
+        '''
+        def __calculating_value_prob(self, key, value):
+            return self.quantities[key][value][0] / len(self.df_train) if self.quantities[key][value][0] != 0 else prob_for_zero_occurrences
+        
+        '''
+        the probability of the value when the stroke happened, P(B|A)
+        '''
+        def __calculating_value_cond_prob(self, key, value):
+            return self.quantities[key][value][1] / len(self.df_train) if self.quantities[key][value][1] != 0 else prob_for_zero_occurrences
+            
+        '''
+        list_of_characteristics may be a list of lists, every inner list must contain
+        the characteristic and the corresponding possible value for it
+
+        for simplicity we are assuming that the characteristics are independent on each other
+        '''
+        def calculating_probs(self, list_of_characteristic):
+            probs = []
+            for [key, value] in list_of_characteristic:
+                if self.is_valid_value(key, value) == True:
+                    probs.append(self.__calculating_value_cond_prob(key, value) / self.__calculating_value_prob(key, value))
+                else:
+                    return ValueError
+            final_prob = self.stroke_occur_prob #P(A)
+            for prob in probs:
+                final_prob *= prob
+            return final_prob #P(A|B, C, D) = P(A) * P(B|A) * P(C|A) * P(D|A) / P(B) * P(C) * P(D)
+            
         def debug_info_quant(self):
+            print(self.stroke_occur_prob)
             for key in self.quantities.keys():
                 print(key, self.quantities[key])
     
-
-LINE_TOTAL = 2000
-TEST_SIZE = 0.25
-
-
-df = pd.read_csv('healthcare-dataset-stroke-data.csv', nrows=LINE_TOTAL)
-df_train, df_test = train_test_split(df, test_size=TEST_SIZE)
+df = pd.read_csv('stroke_train_data.csv')
 set_stroke_ocurrences = set(df[df['stroke'] == 1].index.to_list())
-bp = BayesProb(df_train, df_test, set_stroke_ocurrences)
+bp = BayesProb(df, set_stroke_ocurrences)
 
 #calculando as quantidades para cada coluna
 bp.calculating_quants('gender', ['Male', 'Female', 'Other'])
-bp.calculating_quants('age', [age*5 + 5 for age in range(0, 17)])
+bp.calculating_interval_quants('age', [age*5 + 5 for age in range(0, 17)])
 bp.calculating_quants('hypertension', [0, 1])
 bp.calculating_quants('heart_disease', [0, 1])
 bp.calculating_quants('ever_married', ['Yes', 'No'])
 bp.calculating_quants('work_type', ['Private', 'Govt_job', 'Self-employed', 'children', 'Nerver_worked'])
 bp.calculating_quants('Residence_type', ['Urban', 'Rural'])
-bp.calculating_quants('avg_glucose_level', [gluc*10 + 65 for gluc in range(0, 22)])
-bp.calculating_quants('bmi', [bmi*5 + 15 for bmi in range(0, 18)])
-bp.calculating_quants('smoking_status', [bmi*5 + 15 for bmi in range(0, 18)])
-bp.calculating_quants('bmi', [bmi*5 + 15 for bmi in range(0, 18)])
+bp.calculating_interval_quants('avg_glucose_level', [gluc*10 + 65 for gluc in range(0, 22)])
+bp.calculating_interval_quants('bmi', [bmi*5 + 15 for bmi in range(0, 18)])
 bp.calculating_quants('smoking_status', ['never smoked', 'smokes', 'formerly smoked', 'Unknown'])
-bp.calculating_quants('stroke', [0, 1])
 
-bp.debug_info_quant()
-stop()
+person = [['gender', 'Male'], ['age', 70], ['hypertension', 1], ['heart_disease', 1], ['ever_married', 'Yes'], ['work_type', 'Private'], ['Residence_type', 'Urban'], ['avg_glucose_level', 105], ['bmi', 75], ['smoking_status', 'smokes']]
+prob = bp.calculating_probs(person)
+print(prob)
 
 #ABAIXO TEM APENAS RASCUNHOS DE CODIGOS PARA CHEGAR NO ATUAL E IDEIAS Q PODEM SER APROVEITADAS DEPOIS
 
+#     0: 'gender',
 #     1: 'age',
 #     2: 'hypertension',
 #     3: 'heart_disease',
