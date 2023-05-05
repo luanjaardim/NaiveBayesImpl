@@ -1,4 +1,4 @@
-from pandas import read_csv
+import pandas as pd
 
 #if some value doesn't happen on training
 prob_for_zero_occurrences = 1e-4
@@ -18,16 +18,17 @@ ALL_DATASET_POSSIBLE_VALUES = {
 }
 
 def read_csv_file(file):
-    return read_csv(file).drop(['Unnamed: 0', 'id'], axis=1)
+    return pd.read_csv(file).drop(['id'], axis=1)
 
 class BayesProb:
         def __init__(self) -> None:
             self.quantities = {}    
             self.list_of_all_possible_values = {} #shows every possible choose for each possible patient characteristic
 
-        def fit(self, data):
-            self.df_train = data
-            self.stroke_occurencies_index = set(data[data['stroke'] == 1].index.tolist())
+        def fit(self, x_data, y_data):
+            x_data['stroke'] = pd.DataFrame(y_data)['stroke']
+            self.df_train = x_data
+            self.stroke_occurencies_index = set(self.df_train[self.df_train['stroke'] == 1].index.tolist())
             self.stroke_quant = len(self.stroke_occurencies_index)
             self.stroke_occur_prob = self.stroke_quant / len(self.df_train)
             self.calculating_all_quants()
@@ -131,7 +132,7 @@ class BayesProb:
         def predict(self, input):
             input_data = {}
             for key in input:
-                if key in self.list_of_all_possible_values:
+                if key in self.list_of_all_possible_values and key != 'stroke':
                     input_data[key] = input[key].values.tolist()
 
             results = []
